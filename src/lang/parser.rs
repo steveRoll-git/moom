@@ -32,12 +32,7 @@ impl Parser {
             binding_scopes: vec![
                 {
                     let mut scope = HashMap::new();
-                    let the_builtins =
-                        if let Some(b) = builtins {
-                            b
-                        } else {
-                            DEFAULT_BUILTINS
-                        };
+                    let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                     for (i, name) in the_builtins.iter().map(|func| func.0.to_string()).enumerate() {
                         scope.insert(name.clone(), Binding::Builtin(i));
                     }

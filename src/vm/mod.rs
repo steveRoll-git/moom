@@ -181,12 +181,7 @@ impl VM {
             string_storage: Default::default(),
             string_last_id: 0,
             external_functions: {
-                let the_builtins =
-                if let Some(b) = builtins {
-                    b
-                } else {
-                    DEFAULT_BUILTINS
-                };
+                let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                 the_builtins.iter().map(|func| func.1).collect()
             },
         }
