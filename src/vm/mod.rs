@@ -9,6 +9,8 @@ pub use runtime_error::RuntimeError as RuntimeError;
 pub use crate::vm::program::Program;
 use crate::vm::Value::{Boolean, Nil};
 
+use self::default_builtins::{BuiltinList, DEFAULT_BUILTINS};
+
 mod bytecode;
 mod program;
 mod runtime_error;
@@ -171,16 +173,21 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn new(program: Program, builtins: Option<Vec<ExternalFunction>>) -> VM {
+    pub fn new(program: Program, builtins: Option<&BuiltinList>) -> VM {
         VM {
             stack_frames: vec![],
             program,
             result: Value::Nil,
             string_storage: Default::default(),
             string_last_id: 0,
-            external_functions: match builtins {
-                None => default_builtins::DEFAULT_BUILTINS.iter().map(|func| func.1).collect(),
-                Some(builtins) => builtins
+            external_functions: {
+                let the_builtins =
+                if let Some(b) = builtins {
+                    b
+                } else {
+                    DEFAULT_BUILTINS
+                };
+                the_builtins.iter().map(|func| func.1).collect()
             },
         }
     }
