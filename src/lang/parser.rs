@@ -7,15 +7,6 @@ use crate::lang::tree::Tree::{BoolValue, NumberValue, StringValue};
 use crate::vm::{Bytecode, Function, Program};
 use crate::vm::default_builtins::{DEFAULT_BUILTINS, BuiltinList};
 
-macro_rules! expect_enum {
-    ($item:expr, $variant:path, $message:expr) => {
-        match $item {
-            $variant(a) => a,
-            _ => panic!("{}", $message)
-        }
-    };
-}
-
 const INFIX_ERROR_MESSAGE: &str = "Invalid infix expression state";
 
 pub struct Parser {
