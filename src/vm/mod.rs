@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::io::Write;
 use std::string::String;
 
 pub use bytecode::Bytecode;
 pub use program::Function;
-pub use runtime_error::RuntimeError as RuntimeError;
+pub use runtime_error::RuntimeError;
 
 pub use crate::vm::program::Program;
 use crate::vm::Value::{Boolean, Nil};
@@ -12,9 +13,9 @@ use crate::vm::Value::{Boolean, Nil};
 use self::default_builtins::{BuiltinList, DEFAULT_BUILTINS};
 
 mod bytecode;
+pub mod default_builtins;
 mod program;
 mod runtime_error;
-pub mod default_builtins;
 
 pub type ExternalFunction = fn(&mut VM, Vec<Value>) -> Result<Value, String>;
 
@@ -36,7 +37,7 @@ impl Value {
             Value::Boolean(_) => "boolean",
             Value::String(_) => "string",
             Value::Function { .. } => "function",
-            Value::ExternalFunction(_) => "external"
+            Value::ExternalFunction(_) => "external",
         }
     }
 
@@ -53,7 +54,7 @@ impl Display for Value {
             Boolean(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "<string {}>", s),
             Value::Function { prototype_index } => write!(f, "<function {}>", prototype_index),
-            Value::ExternalFunction(index) => write!(f, "<builtin {}>", index)
+            Value::ExternalFunction(index) => write!(f, "<builtin {}>", index),
         }
     }
 }
@@ -70,7 +71,7 @@ impl TryFrom<Value> for f64 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             Value::Number(n) => Ok(n),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -128,7 +129,10 @@ impl StackFrame {
         }
     }
 
-    fn binary_arithmetic_compare_op(&mut self, func: fn(f64, f64) -> bool) -> Result<(), RuntimeError> {
+    fn binary_arithmetic_compare_op(
+        &mut self,
+        func: fn(f64, f64) -> bool,
+    ) -> Result<(), RuntimeError> {
         let b = self.pop_value()?;
         let a = self.pop_value()?;
 
@@ -170,6 +174,8 @@ pub struct VM {
     string_storage: HashMap<usize, String>,
     external_functions: Vec<ExternalFunction>,
     string_last_id: usize,
+
+    output: Box<dyn Write>,
 }
 
 impl VM {
@@ -184,11 +190,14 @@ impl VM {
                 let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                 the_builtins.iter().map(|func| func.1).collect()
             },
+            output: Box::new(std::io::stdout()),
         }
     }
 
     fn last_frame(&mut self) -> &mut StackFrame {
-        self.stack_frames.last_mut().expect("Tried to run without any stack frames")
+        self.stack_frames
+            .last_mut()
+            .expect("Tried to run without any stack frames")
     }
 
     fn run_instruction(&mut self) -> Result<(), RuntimeError> {
@@ -312,10 +321,10 @@ impl VM {
                         match result {
                             Ok(value) => {
                                 self.result = value;
-                            },
+                            }
                             Err(message) => {
                                 return Err(RuntimeError::Custom(message));
-                            },
+                            }
                         }
                     }
                     _ => {}
@@ -360,7 +369,10 @@ impl VM {
 
 #[cfg(test)]
 mod vm_tests {
-    use std::option::Option::None;
+    use std::{
+        option::Option::None,
+        sync::{Arc, Mutex},
+    };
 
     use crate::lang::Parser;
 
@@ -373,9 +385,7 @@ mod vm_tests {
             Ok(program) => {
                 let mut vm = VM::new(program, None);
                 match vm.run() {
-                    Ok(_) => {
-
-                    }
+                    Ok(_) => {}
                     Err(error) => {
                         panic!("Runtime Error:\n{}", error);
                     }
@@ -389,21 +399,38 @@ mod vm_tests {
         }
     }
 
-    fn assert_program(code: &'static str, expected_result: Value) {
+    fn assert_program(code: &'static str, expected_output: &str) {
+        #[derive(Clone)]
+        struct OutputCapturer(Arc<Mutex<Vec<u8>>>);
+        impl Write for OutputCapturer {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
         let mut parser = Parser::new(Box::new(code.chars()), "code".to_string(), None);
         let program = parser.parse_file();
         match program {
             Ok(program) => {
                 println!("{:?}", program.main_function);
                 let mut vm: VM = VM::new(program, None);
+                let mut output = OutputCapturer(Default::default());
+                vm.output = Box::new(output.clone());
                 match vm.run() {
                     Ok(_) => {}
                     Err(error) => {
                         panic!("Runtime Error:\n{}", error)
                     }
                 }
-                let result = vm.get_result();
-                assert_eq!(result, expected_result);
+                assert_eq!(
+                    output.0.lock().unwrap().as_slice(),
+                    expected_output.as_bytes()
+                );
             }
             Err(e) => {
                 println!("Error: {}", e);
@@ -415,7 +442,10 @@ mod vm_tests {
     #[test]
     fn test_expr() {
         assert_expr("5 * 4 - (9) / 3 * 10 + 78", Value::Number(68.0));
-        assert_expr("-(8 / 7) * 6 * 3 / (78 - -4) + 3", Value::Number(2.749128919860627));
+        assert_expr(
+            "-(8 / 7) * 6 * 3 / (78 - -4) + 3",
+            Value::Number(2.749128919860627),
+        );
     }
 
     #[test]
@@ -426,5 +456,17 @@ mod vm_tests {
         assert_expr("6 > 7 && 2 <= 0", Value::Boolean(false));
         assert_expr("false || 4 >= 3", Value::Boolean(true));
         assert_expr("!(4 > -999) || 0 != 0", Value::Boolean(false));
+    }
+
+    #[test]
+    fn test_print_literal() {
+        assert_program(
+            "
+        func main() {
+            print(\"hello wow\");
+            print(\"second line!\");
+        }",
+            "hello wow\nsecond line!\n",
+        )
     }
 }

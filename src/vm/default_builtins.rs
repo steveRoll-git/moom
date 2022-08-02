@@ -19,7 +19,7 @@ pub const DEFAULT_BUILTINS: &BuiltinList = &[
                 result.push(' ');
             }
         }
-        println!("{}", result);
+        writeln!(vm.output, "{}", result);
         return Ok(Nil);
     })
 ];
