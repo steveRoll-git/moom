@@ -11,6 +11,7 @@ pub enum Keyword {
     False,
 
     Func,
+    Var,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, strum::Display, strum::EnumString)]

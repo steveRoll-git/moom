@@ -4,7 +4,7 @@ use std::io::Write;
 use std::string::String;
 
 pub use bytecode::Bytecode;
-pub use program::Function;
+pub(crate) use program::Function;
 pub use runtime_error::RuntimeError;
 
 pub use crate::vm::program::Program;
@@ -211,7 +211,7 @@ impl VM {
         } else {
             &self.program.functions[last_frame.function - 1]
         };
-        let instruction: &Bytecode = function
+        let instruction: &Bytecode = function.code
             .get(last_frame.instruction_pointer)
             .expect("instruction pointer out of range");
 
@@ -342,6 +342,9 @@ impl VM {
             Bytecode::PushReturn => {
                 last_frame.push_value(self.result);
             }
+            Bytecode::SetLocal(index) => {
+                last_frame.locals[*index] = last_frame.value_stack.pop().expect("Stack is empty");
+            },
         }
 
         self.last_frame().instruction_pointer = next_instruction;
@@ -353,7 +356,7 @@ impl VM {
         self.stack_frames.push(StackFrame {
             function: 0,
             value_stack: vec![],
-            locals: vec![],
+            locals: vec![Value::Nil; self.program.main_function.stack_size], //TODO use stack size of the actual running function
             instruction_pointer: 0,
         });
         while !self.stack_frames.is_empty() {
@@ -417,7 +420,7 @@ mod vm_tests {
         let program = parser.parse_file();
         match program {
             Ok(program) => {
-                println!("{:?}", program.main_function);
+                println!("{:?}", program.main_function.code);
                 let mut vm: VM = VM::new(program, None);
                 let mut output = OutputCapturer(Default::default());
                 vm.output = Box::new(output.clone());
@@ -433,8 +436,7 @@ mod vm_tests {
                 );
             }
             Err(e) => {
-                println!("Error: {}", e);
-                panic!();
+                panic!("Error: {}", e);
             }
         }
     }
@@ -467,6 +469,24 @@ mod vm_tests {
             print(\"second line!\");
         }",
             "hello wow\nsecond line!\n",
+        )
+    }
+
+    #[test]
+    fn test_local() {
+        assert_program(
+            "
+            func main() {
+                var first = 124;
+                print(first);
+                var someString = \"wow very cool\";
+                var second = first * 1.5;
+                print(second, first);
+                first = first + 1;
+                print(first, second);
+                print(someString);
+            }",
+            "124\n186 124\n125 186\nwow very cool\n"
         )
     }
 }

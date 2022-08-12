@@ -79,4 +79,7 @@ pub enum Bytecode {
 
     /// Pushes the return register to the stack.
     PushReturn,
+
+    /// Sets the specificed local to the last value on the stack.
+    SetLocal(usize),
 }

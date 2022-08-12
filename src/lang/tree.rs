@@ -144,7 +144,10 @@ pub enum Tree {
         value: Box<Tree>
     },
 
-    Block(Vec<Tree>),
+    Block {
+        statements: Vec<Tree>,
+        stack_size: usize
+    },
 }
 
 impl Tree {

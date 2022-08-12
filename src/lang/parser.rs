@@ -1,4 +1,6 @@
+use std::cmp::max;
 use std::collections::HashMap;
+use std::default;
 
 use crate::lang::{Lexer, Position, SyntaxError, SyntaxErrorKind, ToBytecode, Token};
 use crate::lang::token::{Keyword, Punctuation};
@@ -9,10 +11,17 @@ use crate::vm::default_builtins::{DEFAULT_BUILTINS, BuiltinList};
 
 const INFIX_ERROR_MESSAGE: &str = "Invalid infix expression state";
 
+struct Scope {
+    pub bindings: HashMap<String, Binding>,
+    pub stack_size: usize,
+    pub last_local: usize,
+}
+
 pub struct Parser {
     lexer: Lexer,
     current_token: Token,
-    binding_scopes: Vec<HashMap<String, Binding>>,
+    builtins: HashMap<String, usize>,
+    binding_scopes: Vec<Scope>,
 }
 
 impl Parser {
@@ -20,16 +29,16 @@ impl Parser {
         Parser {
             lexer: Lexer::new(code_iterator, source_name),
             current_token: Token::EOF,
-            binding_scopes: vec![
-                {
-                    let mut scope = HashMap::new();
+            builtins: {
+                    let mut bindings = HashMap::new();
                     let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                     for (i, name) in the_builtins.iter().map(|func| func.0.to_string()).enumerate() {
-                        scope.insert(name.clone(), Binding::Builtin(i));
+                        bindings.insert(name.clone(), i);
                     }
-                    scope
-                }
-            ],
+                    bindings
+
+            },
+            binding_scopes: vec![],
         }
     }
 
@@ -63,7 +72,7 @@ impl Parser {
     }
 
     fn expect_punctuation(&mut self, expect: Punctuation) -> Result<(), SyntaxError> {
-        let position = self.position();
+        let position = self.previous_position();
         if let Token::Punctuation(p) = self.current_token {
             if p == expect {
                 self.next_token()?;
@@ -110,9 +119,12 @@ impl Parser {
 
     fn get_binding(&self, name: &str) -> Option<Binding> {
         for scope in self.binding_scopes.iter().rev() {
-            if let Some(binding) = scope.get(name) {
+            if let Some(binding) = scope.bindings.get(name) {
                 return Some(*binding);
             }
+        }
+        if let Some(index) = self.builtins.get(name) {
+            return Some(Binding::Builtin(*index))
         }
 
         None
@@ -274,6 +286,27 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> Result<Tree, SyntaxError> {
+        let position = self.position();
+
+        if let Token::Keyword(Keyword::Var) = self.current_token {
+            self.next_token()?;
+
+            let name = self.expect_identifier()?;
+            self.expect_punctuation(Punctuation::Assign)?;
+            let value = self.parse_expression()?;
+
+            let last_scope = self.binding_scopes.last_mut().unwrap();
+            let location = last_scope.last_local;
+            last_scope.bindings.insert(name, Binding::Local(location));
+            last_scope.last_local += 1;
+            last_scope.stack_size = max(last_scope.stack_size, last_scope.last_local);
+
+            return Ok(Tree::Assignment {
+                target: Box::new(Tree::BindingValue(Binding::Local(location))),
+                value: Box::new(value)
+            })
+        }
+
         let index_or_call = self.parse_index_or_call(None)?;
         if matches!(index_or_call, Tree::FunctionCall {..}) {
             Ok(index_or_call)
@@ -290,6 +323,22 @@ impl Parser {
     fn parse_block(&mut self) -> Result<Tree, SyntaxError> {
         self.expect_punctuation(Punctuation::LCurly)?;
 
+        self.binding_scopes.push(
+            if let Some(last_scope) = self.binding_scopes.last() {
+                Scope{
+                    bindings: HashMap::new(),
+                    stack_size: last_scope.stack_size,
+                    last_local: last_scope.last_local,
+                }
+            } else {
+                Scope {
+                    bindings: HashMap::new(),
+                    stack_size: 0,
+                    last_local: 0,
+                }
+            }
+        );
+
         let mut result: Vec<Tree> = vec![];
         while self.current_token != Token::Punctuation(Punctuation::RCurly) {
             let statement = self.parse_statement()?;
@@ -299,7 +348,18 @@ impl Parser {
         }
         self.expect_punctuation(Punctuation::RCurly)?;
 
-        Ok(Tree::Block(result))
+        let last_stack_size = self.binding_scopes.last().unwrap().stack_size;
+
+        self.binding_scopes.pop();
+
+        if let Some(last_scope) = self.binding_scopes.last_mut() {
+            last_scope.stack_size = max(last_scope.stack_size, last_stack_size);
+        }
+
+        Ok(Tree::Block{
+            statements: result,
+            stack_size: last_stack_size,
+        })
     }
 
     pub fn parse_file(&mut self) -> Result<Program, SyntaxError> {
@@ -320,22 +380,28 @@ impl Parser {
                     //TODO parameters
                     self.expect_punctuation(Punctuation::RParen)?;
                     let block = self.parse_block()?;
-                    let mut code = block.get_bytecode();
-                    if !matches!(code.last(), Some(Bytecode::Return(_))) {
-                        code.push(Bytecode::Return(false));
-                    }
-                    if name == "main" {
-                        main_function = Some(code);
-                    } else {
-                        if let Some(_) = function_names.get(&*name) {
-                            return Err(SyntaxError {
-                                error: SyntaxErrorKind::DuplicateFunctionDefinition(name.clone()),
-                                source_name: self.source_name(),
-                                position: name_position,
-                            });
+                    if let Tree::Block { statements, stack_size } = block {
+                        let mut function = Function {
+                            code: statements.get_bytecode(),
+                            stack_size
+                        };
+                        if !matches!(function.code.last(), Some(Bytecode::Return(_))) {
+                            function.code.push(Bytecode::Return(false));
                         }
-                        function_names.insert(name.clone(), functions.len());
-                        functions.push(code);
+                        if name == "main" {
+                            main_function = Some(function);
+                        } else {
+                            if let Some(_) = function_names.get(&*name) {
+                                return Err(SyntaxError {
+                                    error: SyntaxErrorKind::DuplicateFunctionDefinition(name.clone()),
+                                    source_name: self.source_name(),
+                                    position: name_position,
+                                });
+                            }
+                            function_names.insert(name.clone(), functions.len());
+                            functions.push(function);
+                        }
+
                     }
                 }
                 _ => return self.unexpected_token(self.position(), token)
@@ -364,7 +430,7 @@ impl Parser {
             main_function: {
                 let mut bytecode = body.get_bytecode();
                 bytecode.push(Bytecode::Return(true));
-                bytecode
+                Function { code: bytecode, stack_size: 0 }
             },
         })
     }

@@ -1,4 +1,4 @@
-use crate::lang::tree::{BinaryOperator, Tree, UnaryOperator};
+use crate::lang::tree::{BinaryOperator, Tree, UnaryOperator, Binding};
 use crate::vm::Bytecode;
 
 pub trait ToBytecode {
@@ -40,6 +40,18 @@ impl ToBytecode for String {
 impl ToBytecode for bool {
     fn get_bytecode(&self) -> Vec<Bytecode> {
         vec![Bytecode::PushBool(*self)]
+    }
+}
+
+impl ToBytecode for Vec<Tree> {
+    fn get_bytecode(&self) -> Vec<Bytecode> {
+        let mut result = vec![];
+
+        for statement in self {
+            result.append(&mut statement.get_bytecode());
+        }
+
+        result
     }
 }
 
@@ -103,16 +115,26 @@ impl ToBytecode for Tree {
                 result
             }
             Tree::Assignment { target, value } => {
-                todo!()
-            }
-            Tree::Block(statements) => {
                 let mut result = vec![];
 
-                for statement in statements {
-                    result.append(&mut statement.get_bytecode());
+                result.append(&mut value.get_bytecode());
+
+                match target.as_ref() {
+                    Tree::BindingValue(binding) => {
+                        match binding {
+                            Binding::Builtin(_) => panic!("Cannot assign to a builtin value"),
+                            Binding::Local(index) => {
+                                result.push(Bytecode::SetLocal(*index))
+                            },
+                        }
+                    },
+                    _ => panic!("Invalid assignment")
                 }
 
                 result
+            }
+            Tree::Block { statements, stack_size } => {
+                return statements.get_bytecode();
             }
         }
     }
