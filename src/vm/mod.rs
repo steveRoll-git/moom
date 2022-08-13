@@ -221,8 +221,8 @@ impl VM {
             Bytecode::PushNumber(n) => {
                 last_frame.push_value(Value::Number(*n));
             }
-            Bytecode::PushString(s) => {
-                self.string_storage.insert(self.string_last_id, s.clone());
+            Bytecode::PushStringLiteral(index) => {
+                self.string_storage.insert(self.string_last_id, self.program.string_literals[*index].clone());
                 last_frame.push_value(Value::String(self.string_last_id));
                 self.string_last_id += 1;
             }

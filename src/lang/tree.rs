@@ -111,7 +111,7 @@ impl ToBytecode for Binding {
 pub enum Tree {
     NumberValue(f64),
 
-    StringValue(String),
+    StringLiteralValue(usize),
 
     BoolValue(bool),
 

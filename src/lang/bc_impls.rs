@@ -31,12 +31,6 @@ impl ToBytecode for f64 {
     }
 }
 
-impl ToBytecode for String {
-    fn get_bytecode(&self) -> Vec<Bytecode> {
-        vec![Bytecode::PushString(self.clone())]
-    }
-}
-
 impl ToBytecode for bool {
     fn get_bytecode(&self) -> Vec<Bytecode> {
         vec![Bytecode::PushBool(*self)]
@@ -60,7 +54,7 @@ impl ToBytecode for Tree {
         match self {
             Tree::NumberValue(t) => t.get_bytecode(),
 
-            Tree::StringValue(t) => t.get_bytecode(),
+            Tree::StringLiteralValue(t) => vec![Bytecode::PushStringLiteral(*t)],
 
             Tree::BoolValue(t) => t.get_bytecode(),
 

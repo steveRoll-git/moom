@@ -5,7 +5,7 @@ use std::default;
 use crate::lang::{Lexer, Position, SyntaxError, SyntaxErrorKind, ToBytecode, Token};
 use crate::lang::token::{Keyword, Punctuation};
 use crate::lang::tree::{BinaryOperator, Binding, Tree, UnaryOperator};
-use crate::lang::tree::Tree::{BoolValue, NumberValue, StringValue};
+use crate::lang::tree::Tree::{BoolValue, NumberValue, StringLiteralValue};
 use crate::vm::{Bytecode, Function, Program};
 use crate::vm::default_builtins::{DEFAULT_BUILTINS, BuiltinList};
 
@@ -21,6 +21,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     builtins: HashMap<String, usize>,
+    string_literals: HashMap<String, usize>,
     binding_scopes: Vec<Scope>,
 }
 
@@ -38,6 +39,7 @@ impl Parser {
                     bindings
 
             },
+            string_literals: HashMap::new(),
             binding_scopes: vec![],
         }
     }
@@ -136,7 +138,14 @@ impl Parser {
         let result = match token {
             Token::EOF => { self.unexpected_token(position, token) }
             Token::Number(n) => Ok(NumberValue(n)),
-            Token::String(s) => Ok(StringValue(s.clone())),
+            Token::String(s) => {
+                if let Some(index) =  self.string_literals.get(&s) {
+                    Ok(StringLiteralValue(*index))
+                } else {
+                    self.string_literals.insert(s, self.string_literals.len());
+                    Ok(StringLiteralValue(self.string_literals.len() - 1))
+                }
+            },
             Token::Keyword(k) => {
                 match k {
                     Keyword::True => Ok(BoolValue(true)),
@@ -409,9 +418,14 @@ impl Parser {
         }
 
         if let Some(func) = main_function {
+            let mut string_literals = vec![];
+            for (literal, index) in self.string_literals.iter() {
+                string_literals.insert(*index, literal.clone())
+            }
             Ok(Program {
                 functions,
                 main_function: func,
+                string_literals
             })
         } else {
             Err(SyntaxError {
@@ -432,6 +446,7 @@ impl Parser {
                 bytecode.push(Bytecode::Return(true));
                 Function { code: bytecode, stack_size: 0 }
             },
+            string_literals: vec![],
         })
     }
 }

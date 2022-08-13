@@ -7,5 +7,6 @@ pub struct Function {
 
 pub struct Program {
     pub functions: Vec<Function>,
-    pub main_function: Function
+    pub main_function: Function,
+    pub string_literals: Vec<String>,
 }

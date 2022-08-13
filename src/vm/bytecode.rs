@@ -3,8 +3,8 @@ pub enum Bytecode {
     /// Pushes a number onto the stack.
     PushNumber(f64),
 
-    /// Pushes a string onto the stack.
-    PushString(String),
+    /// Pushes a string literal onto the stack.
+    PushStringLiteral(usize),
 
     /// Pushes a boolean onto the stack.
     PushBool(bool),
