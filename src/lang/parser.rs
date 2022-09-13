@@ -21,7 +21,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     builtins: HashMap<String, usize>,
-    string_literals: HashMap<String, usize>,
+    string_literals: Vec<String>,
     binding_scopes: Vec<Scope>,
 }
 
@@ -39,7 +39,7 @@ impl Parser {
                     bindings
 
             },
-            string_literals: HashMap::new(),
+            string_literals: vec![],
             binding_scopes: vec![],
         }
     }
@@ -139,10 +139,10 @@ impl Parser {
             Token::EOF => { self.unexpected_token(position, token) }
             Token::Number(n) => Ok(NumberValue(n)),
             Token::String(s) => {
-                if let Some(index) =  self.string_literals.get(&s) {
-                    Ok(StringLiteralValue(*index))
+                if let Some(index) = self.string_literals.iter().position(|x| *x == s) {
+                    Ok(StringLiteralValue(index))
                 } else {
-                    self.string_literals.insert(s, self.string_literals.len());
+                    self.string_literals.push(s);
                     Ok(StringLiteralValue(self.string_literals.len() - 1))
                 }
             },
@@ -418,14 +418,10 @@ impl Parser {
         }
 
         if let Some(func) = main_function {
-            let mut string_literals = vec![];
-            for (literal, index) in self.string_literals.iter() {
-                string_literals.insert(*index, literal.clone())
-            }
             Ok(Program {
                 functions,
                 main_function: func,
-                string_literals
+                string_literals: self.string_literals.clone()
             })
         } else {
             Err(SyntaxError {
