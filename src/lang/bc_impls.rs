@@ -1,6 +1,8 @@
 use crate::lang::tree::{BinaryOperator, Tree, UnaryOperator, Binding};
 use crate::vm::Bytecode;
 
+use super::tree::IfPart;
+
 pub trait ToBytecode {
     fn get_bytecode(&self) -> Vec<Bytecode>;
 }
@@ -84,18 +86,41 @@ impl ToBytecode for Tree {
                 result
             }
 
-            Tree::IfTree { first, elseifs, else_body } => {
-                let all_ifs = std::iter::once(first).chain(elseifs);
+            Tree::IfTree { true_part, elseifs, else_body } => {
+                let all_ifs: Vec<&IfPart> = std::iter::once(true_part).chain(elseifs).collect();
 
                 let mut result: Vec<Bytecode> = vec![];
 
-                for part in all_ifs {
-                    let condition = part.condition.get_bytecode();
-                    todo!()
+                let mut final_points: Vec<usize> = vec![];
+
+                for (index, part) in all_ifs.iter().enumerate() {
+                    let mut condition = part.condition.get_bytecode();
+                    let mut body = part.body.get_bytecode();
+
+                    result.append(&mut condition);
+
+                    result.push(Bytecode::JumpIfFalse(body.len() as isize + 2));
+
+                    result.append(&mut body);
+
+                    if index < all_ifs.len() - 1 || matches!(else_body, Some(..)) {
+                        // this specific instruction is temporary and will be replaced later
+                        final_points.push(result.len());
+                        result.push(Bytecode::Jump(0));
+                    }
+                }
+
+                if let Some(body) = else_body {
+                    result.append(&mut body.get_bytecode());
+                }
+
+                for index in final_points {
+                    result[index] = Bytecode::Jump((result.len() - index) as isize);
                 }
 
                 result
             }
+
             Tree::FunctionCall { function, parameters } => {
                 let mut result = vec![];
 

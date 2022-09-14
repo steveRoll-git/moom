@@ -129,7 +129,7 @@ pub enum Tree {
     },
 
     IfTree {
-        first: IfPart,
+        true_part: IfPart,
         elseifs: Vec<IfPart>,
         else_body: Option<Box<Tree>>
     },

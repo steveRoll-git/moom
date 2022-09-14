@@ -1,10 +1,10 @@
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Copy, Clone, strum::Display, strum::EnumString)]
-#[strum(serialize_all = "snake_case")]
+#[strum(serialize_all = "lowercase")]
 pub enum Keyword {
     If,
-    Then,
+    ElseIf,
     Else,
 
     True,

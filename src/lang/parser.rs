@@ -9,6 +9,8 @@ use crate::lang::tree::Tree::{BoolValue, NumberValue, StringLiteralValue};
 use crate::vm::{Bytecode, Function, Program};
 use crate::vm::default_builtins::{DEFAULT_BUILTINS, BuiltinList};
 
+use super::tree::IfPart;
+
 const INFIX_ERROR_MESSAGE: &str = "Invalid infix expression state";
 
 struct Scope {
@@ -294,26 +296,57 @@ impl Parser {
         self.parse_infix_expression(lhs)
     }
 
+    fn parse_if_part(&mut self) -> Result<IfPart, SyntaxError> {
+        let condition = Box::new(self.parse_expression()?);
+        let body = Box::new(self.parse_block()?);
+        Ok(IfPart { condition, body })
+    }
+
     fn parse_statement(&mut self) -> Result<Tree, SyntaxError> {
         let position = self.position();
 
-        if let Token::Keyword(Keyword::Var) = self.current_token {
-            self.next_token()?;
+        if let Token::Keyword(keyword) = self.current_token {
+            match keyword {
+                Keyword::If => {
+                    self.next_token()?;
 
-            let name = self.expect_identifier()?;
-            self.expect_punctuation(Punctuation::Assign)?;
-            let value = self.parse_expression()?;
+                    let true_part: IfPart = self.parse_if_part()?;
 
-            let last_scope = self.binding_scopes.last_mut().unwrap();
-            let location = last_scope.last_local;
-            last_scope.bindings.insert(name, Binding::Local(location));
-            last_scope.last_local += 1;
-            last_scope.stack_size = max(last_scope.stack_size, last_scope.last_local);
+                    let mut elseifs: Vec<IfPart> = vec![];
+                    while let Token::Keyword(Keyword::ElseIf) = self.current_token {
+                        self.next_token()?;
 
-            return Ok(Tree::Assignment {
-                target: Box::new(Tree::BindingValue(Binding::Local(location))),
-                value: Box::new(value)
-            })
+                        elseifs.push(self.parse_if_part()?);
+                    }
+
+                    let else_body = 
+                    if let Token::Keyword(Keyword::Else) = self.current_token {
+                        self.next_token()?;
+                        Some(Box::new(self.parse_block()?))
+                    } else { None };
+
+                    return Ok(Tree::IfTree { true_part, elseifs, else_body })
+                },
+                Keyword::Var => {
+                    self.next_token()?;
+                    
+                    let name = self.expect_identifier()?;
+                    self.expect_punctuation(Punctuation::Assign)?;
+                    let value = self.parse_expression()?;
+                    
+                    let last_scope = self.binding_scopes.last_mut().unwrap();
+                    let location = last_scope.last_local;
+                    last_scope.bindings.insert(name, Binding::Local(location));
+                    last_scope.last_local += 1;
+                    last_scope.stack_size = max(last_scope.stack_size, last_scope.last_local);
+                    
+                    return Ok(Tree::Assignment {
+                        target: Box::new(Tree::BindingValue(Binding::Local(location))),
+                        value: Box::new(value)
+                    })
+                },
+                _ => return self.unexpected_token(position, self.current_token.clone())
+            }
         }
 
         let index_or_call = self.parse_index_or_call(None)?;
