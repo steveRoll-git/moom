@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
@@ -81,16 +82,78 @@ impl From<bool> for Value {
         Value::Boolean(v)
     }
 }
-//impl From<String> for Value {
-//    fn from(v: String) -> Self {
-//        Value::String(v)
-//    }
-//}
+
+trait Markable {
+    fn mark(&self, vm: &VM, new_mark: u8) {}
+}
+
+impl Markable for String {}
+
+impl Markable for Value {
+    fn mark(&self, vm: &VM, new_mark: u8) {
+        match self {
+            Value::String(index) => {
+                vm.string_storage.mark_at(vm, new_mark, index);
+            },
+            Value::Function { prototype_index } => todo!(),
+            Value::ExternalFunction(_) => todo!(),
+            _ => {}
+        }
+    }
+}
+
+struct GCObject<T: Markable> {
+    mark: Cell<u8>,
+    value: T
+}
+
+impl<T: Markable> GCObject<T> {
+    fn mark(&self, vm: &VM, new_mark: u8) {
+        if self.mark.get() != new_mark {
+            self.mark.set(new_mark);
+            self.value.mark(vm, new_mark);
+        }
+    }
+}
+
+const DELETED_MESSAGE: &str = "Object was deleted!";
+
+#[derive(Default)]
+struct GCObjectStorage<T: Markable> {
+    storage: HashMap<usize, GCObject<T>>,
+    /// The index where new items will be inserted to.
+    insertion_index: usize,
+}
+
+impl<T: Markable> GCObjectStorage<T> {
+    fn get_object(&self, index: &usize) -> &GCObject<T> {
+        self.storage.get(index).expect(DELETED_MESSAGE)
+    }
+
+    fn set_next_free_index(&mut self) {
+        while self.storage.contains_key(&self.insertion_index) {
+            self.insertion_index += 1;
+        }
+    }
+
+    fn insert(&mut self, value: T) -> usize {
+        let the_index = self.insertion_index;
+        self.storage.insert(the_index, GCObject { mark: Cell::new(0), value });
+        self.set_next_free_index();
+        the_index
+    }
+
+    fn mark_at(&self, vm: &VM, new_mark: u8, index: &usize) {
+        let object = self.get_object(index);
+        object.mark(vm, new_mark);
+    }
+}
 
 /// Stores all information about a running function: its instruction pointer, value stack, etc.
 struct StackFrame {
     /// Index of the running function prototype.
     /// 0 - the main function, any other number is an index to the functions array, minus one
+    /// TODO change this to a custom union type
     function: usize,
 
     /// Stack of temporary values used for calculating expressions.
@@ -171,9 +234,9 @@ pub struct VM {
     stack_frames: Vec<StackFrame>,
     program: Program,
     result: Value,
-    string_storage: HashMap<usize, String>,
+    string_storage: GCObjectStorage<String>,
+    gc_mark: u8,
     external_functions: Vec<ExternalFunction>,
-    string_last_id: usize,
 
     output: Box<dyn Write>,
 }
@@ -185,12 +248,21 @@ impl VM {
             program,
             result: Value::Nil,
             string_storage: Default::default(),
-            string_last_id: 0,
+            gc_mark: 0,
             external_functions: {
                 let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                 the_builtins.iter().map(|func| func.1).collect()
             },
             output: Box::new(std::io::stdout()),
+        }
+    }
+
+    fn value_to_string(&self, value: &Value) -> String {
+        match value {
+            Value::String(index) => {
+                self.string_storage.get_object(index).value.clone()
+            },
+            _ => value.to_string(),
         }
     }
 
@@ -222,9 +294,8 @@ impl VM {
                 last_frame.push_value(Value::Number(*n));
             }
             Bytecode::PushStringLiteral(index) => {
-                self.string_storage.insert(self.string_last_id, self.program.string_literals[*index].clone());
-                last_frame.push_value(Value::String(self.string_last_id));
-                self.string_last_id += 1;
+                let index = self.string_storage.insert(self.program.string_literals[*index].clone());
+                last_frame.push_value(Value::String(index));
             }
             Bytecode::PushBool(b) => {
                 last_frame.push_value(Value::Boolean(*b));
