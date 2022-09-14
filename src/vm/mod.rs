@@ -502,8 +502,8 @@ mod vm_tests {
                     }
                 }
                 assert_eq!(
-                    output.0.lock().unwrap().as_slice(),
-                    expected_output.as_bytes()
+                    String::from_utf8_lossy(output.0.lock().unwrap().as_slice()),
+                    expected_output
                 );
             }
             Err(e) => {
