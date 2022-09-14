@@ -580,6 +580,14 @@ mod vm_tests {
                 print("go on")
             }
 
+            if what == 1121 {
+                print("ASDFASDF")
+            }
+
+            if what <= 100 {
+                print("yes")
+            }
+
             if 2 == 5 {
                 print("nope")
             } elseif what == what + 1 {
@@ -591,6 +599,6 @@ mod vm_tests {
             }
         }
         "#,
-        "okay good\ngo on\nperfect\n")
+        "okay good\ngo on\nyes\nperfect\n")
     }
 }

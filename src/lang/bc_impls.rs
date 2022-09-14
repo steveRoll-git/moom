@@ -94,16 +94,18 @@ impl ToBytecode for Tree {
                 let mut final_points: Vec<usize> = vec![];
 
                 for (index, part) in all_ifs.iter().enumerate() {
+                    let not_last = index < all_ifs.len() - 0 || matches!(else_body, Some(..));
+
                     let mut condition = part.condition.get_bytecode();
                     let mut body = part.body.get_bytecode();
 
                     result.append(&mut condition);
 
-                    result.push(Bytecode::JumpIfFalse(body.len() as isize + 2));
+                    result.push(Bytecode::JumpIfFalse(body.len() as isize + if not_last { 2 } else { 1 }));
 
                     result.append(&mut body);
 
-                    if index < all_ifs.len() - 1 || matches!(else_body, Some(..)) {
+                    if not_last {
                         // this specific instruction is temporary and will be replaced later
                         final_points.push(result.len());
                         result.push(Bytecode::Jump(0));
