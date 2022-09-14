@@ -352,7 +352,9 @@ impl Parser {
         while self.current_token != Token::Punctuation(Punctuation::RCurly) {
             let statement = self.parse_statement()?;
             result.push(statement);
-            self.expect_punctuation(Punctuation::Semicolon)?;
+            if let Token::Punctuation(Punctuation::Semicolon) = self.current_token {
+                self.next_token()?;
+            }
             //TODO break after return statement
         }
         self.expect_punctuation(Punctuation::RCurly)?;
