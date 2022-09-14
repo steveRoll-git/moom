@@ -534,11 +534,11 @@ mod vm_tests {
     #[test]
     fn test_print_literal() {
         assert_program(
-            "
+            r#"
         func main() {
-            print(\"hello wow\")
-            print(\"second line!\")
-        }",
+            print("hello wow")
+            print("second line!")
+        }"#,
             "hello wow\nsecond line!\n",
         )
     }
@@ -546,17 +546,17 @@ mod vm_tests {
     #[test]
     fn test_local() {
         assert_program(
-            "
+            r#"
             func main() {
                 var first = 124
                 print(first)
-                var someString = \"wow very cool\"
+                var someString = "wow very cool"
                 var second = first * 1.5
                 print(second, first)
                 first = first + 1
                 print(first, second)
                 print(someString)
-            }",
+            }"#,
             "124\n186 124\n125 186\nwow very cool\n"
         )
     }
@@ -564,33 +564,33 @@ mod vm_tests {
     #[test]
     fn test_if() {
         assert_program(
-        "
+        r#"
         func main() {
             var what = 53.3
 
             if what > 3 {
-                print(\"okay good\")
+                print("okay good")
             } else {
-                print(\"not supposed to happen\")
+                print("not supposed to happen")
             }
 
             if what == -1 {
-                print(\"not good\")
+                print("not good")
             } else {
-                print(\"go on\")
+                print("go on")
             }
 
             if 2 == 5 {
-                print(\"nope\")
+                print("nope")
             } elseif what == what + 1 {
-                print(\"aaaah\")
+                print("aaaah")
             } elseif what == 53.3 {
-                print(\"perfect\")
+                print("perfect")
             } else {
-                print(\"crap\")
+                print("crap")
             }
         }
-        ",
+        "#,
         "okay good\ngo on\nperfect\n")
     }
 }
