@@ -134,6 +134,11 @@ pub enum Tree {
         else_body: Option<Box<Tree>>
     },
 
+    WhileTree {
+        condition: Box<Tree>,
+        body: Box<Tree>
+    },
+
     FunctionCall {
         function: Box<Tree>,
         parameters: Vec<Box<Tree>>

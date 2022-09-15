@@ -601,4 +601,26 @@ mod vm_tests {
         "#,
         "okay good\ngo on\nyes\nperfect\n")
     }
+
+    #[test]
+    fn test_while() {
+        assert_program(r#"
+        func main() {
+            var count = 0
+
+            print("start")
+
+            while count < 4 {
+                print("count is", count)
+                count = count + 1
+            }
+
+            while false {
+                print("shouldn't happen")
+            }
+
+            print("done")
+        }
+        "#, "start\ncount is 0\ncount is 1\ncount is 2\ncount is 3\ndone\n")
+    }
 }

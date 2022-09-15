@@ -123,6 +123,18 @@ impl ToBytecode for Tree {
                 result
             }
 
+            Tree::WhileTree { condition, body } => {
+                let mut result = vec![];
+                let mut body = body.get_bytecode();
+
+                result.append(&mut condition.get_bytecode());
+                result.push(Bytecode::JumpIfFalse((body.len() + 2) as isize));
+                result.append(&mut body);
+                result.push(Bytecode::Jump(-(result.len() as isize)));
+
+                result
+            }
+
             Tree::FunctionCall { function, parameters } => {
                 let mut result = vec![];
 

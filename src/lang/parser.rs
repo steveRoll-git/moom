@@ -327,6 +327,16 @@ impl Parser {
 
                     return Ok(Tree::IfTree { true_part, elseifs, else_body })
                 },
+
+                Keyword::While => {
+                    self.next_token()?;
+
+                    let condition = self.parse_expression()?;
+                    let body = self.parse_block()?;
+
+                    return Ok(Tree::WhileTree { condition: Box::new(condition), body: Box::new(body) })
+                }
+
                 Keyword::Var => {
                     self.next_token()?;
                     
