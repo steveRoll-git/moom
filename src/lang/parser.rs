@@ -134,6 +134,17 @@ impl Parser {
         None
     }
 
+    fn get_string_literal(&mut self, literal: &String) -> Tree {
+        Tree::StringLiteralValue(
+            if let Some(index) = self.string_literals.iter().position(|x| *x == *literal) {
+                index
+            } else {
+                self.string_literals.push(literal.clone());
+                self.string_literals.len() - 1
+            }
+        )
+    }
+
     fn parse_primary(&mut self) -> Result<Tree, SyntaxError> {
         let position = self.position();
         let token = self.current_token.clone();
@@ -141,12 +152,7 @@ impl Parser {
             Token::EOF => { self.unexpected_token(position, token) }
             Token::Number(n) => Ok(NumberValue(n)),
             Token::String(s) => {
-                if let Some(index) = self.string_literals.iter().position(|x| *x == s) {
-                    Ok(StringLiteralValue(index))
-                } else {
-                    self.string_literals.push(s);
-                    Ok(StringLiteralValue(self.string_literals.len() - 1))
-                }
+                Ok(self.get_string_literal(&s))
             },
             Token::Keyword(k) => {
                 match k {
