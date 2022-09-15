@@ -20,12 +20,15 @@ mod runtime_error;
 
 pub type ExternalFunction = fn(&mut VM, Vec<Value>) -> Result<Value, String>;
 
+type Table = HashMap<String, Value>;
+
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
     String(usize),
+    Table(usize),
     Function { prototype_index: usize },
     ExternalFunction(usize),
 }
@@ -37,6 +40,7 @@ impl Value {
             Value::Number(_) => "number",
             Value::Boolean(_) => "boolean",
             Value::String(_) => "string",
+            Value::Table(_) => "table",
             Value::Function { .. } => "function",
             Value::ExternalFunction(_) => "external",
         }
@@ -54,6 +58,7 @@ impl Display for Value {
             Value::Number(n) => write!(f, "{}", n),
             Boolean(b) => write!(f, "{}", b),
             Value::String(s) => write!(f, "<string {}>", s),
+            Value::Table(i) => write!(f, "<table {}>", i),
             Value::Function { prototype_index } => write!(f, "<function {}>", prototype_index),
             Value::ExternalFunction(index) => write!(f, "<builtin {}>", index),
         }
@@ -88,6 +93,14 @@ trait Markable {
 }
 
 impl Markable for String {}
+
+impl Markable for Table {
+    fn mark(&self, vm: &VM, new_mark: u8) {
+        for (_, v) in self {
+            v.mark(vm, new_mark);
+        }
+    }
+}
 
 impl Markable for Value {
     fn mark(&self, vm: &VM, new_mark: u8) {
@@ -128,6 +141,10 @@ struct GCObjectStorage<T: Markable> {
 impl<T: Markable> GCObjectStorage<T> {
     fn get_object(&self, index: &usize) -> &GCObject<T> {
         self.storage.get(index).expect(DELETED_MESSAGE)
+    }
+
+    fn get_object_mut(&mut self, index: &usize) -> &mut GCObject<T> {
+        self.storage.get_mut(index).expect(DELETED_MESSAGE)
     }
 
     fn set_next_free_index(&mut self) {
@@ -235,6 +252,7 @@ pub struct VM {
     program: Program,
     result: Value,
     string_storage: GCObjectStorage<String>,
+    table_storage: GCObjectStorage<Table>,
     gc_mark: u8,
     external_functions: Vec<ExternalFunction>,
 
@@ -248,6 +266,7 @@ impl VM {
             program,
             result: Value::Nil,
             string_storage: Default::default(),
+            table_storage: Default::default(),
             gc_mark: 0,
             external_functions: {
                 let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
@@ -288,6 +307,8 @@ impl VM {
             .expect("instruction pointer out of range");
 
         let mut next_instruction: usize = last_frame.instruction_pointer + 1;
+
+        const EMPTY_STACK_MESSAGE: &str = "Stack is empty";
 
         match instruction {
             Bytecode::PushNumber(n) => {
@@ -414,7 +435,50 @@ impl VM {
                 last_frame.push_value(self.result);
             }
             Bytecode::SetLocal(index) => {
-                last_frame.locals[*index] = last_frame.value_stack.pop().expect("Stack is empty");
+                last_frame.locals[*index] = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
+            },
+            Bytecode::CreateTable => {
+                let index = self.table_storage.insert(HashMap::new());
+                last_frame.value_stack.push(Value::Table(index));
+            },
+            Bytecode::GetTable => {
+                let index = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
+                let table = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
+
+                if let Value::Table(table_index) = table {
+                    if let Value::String(string_index) = index {
+                        let the_table = &self.table_storage.get_object(&table_index).value;
+                        let the_index = &self.string_storage.get_object(&string_index).value;
+
+                        last_frame.value_stack.push(*the_table.get(the_index).unwrap_or(&Value::Nil));
+                    } else {
+                        return Err(RuntimeError::IndexWithNonString(index));
+                    }
+                } else {
+                    return Err(RuntimeError::IndexNonTable(table));
+                }
+            },
+            Bytecode::SetTable { keep_table } => {
+                let value = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
+                let index = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
+                let table = last_frame.value_stack.last().expect(EMPTY_STACK_MESSAGE);
+                
+                if let Value::Table(table_index) = table {
+                    if let Value::String(string_index) = index {
+                        let the_table = &mut self.table_storage.get_object_mut(table_index).value;
+                        let the_index = &self.string_storage.get_object(&string_index).value;
+
+                        the_table.insert(the_index.to_string(), value);
+                    } else {
+                        return Err(RuntimeError::IndexWithNonString(index));
+                    }
+                } else {
+                    return Err(RuntimeError::IndexNonTable(*table));
+                }
+
+                if !keep_table {
+                    last_frame.value_stack.pop();
+                }
             },
         }
 
@@ -622,5 +686,20 @@ mod vm_tests {
             print("done")
         }
         "#, "start\ncount is 0\ncount is 1\ncount is 2\ncount is 3\ndone\n")
+    }
+
+    #[test]
+    fn test_table() {
+        assert_program(r#"
+        func main() {
+            var cool = {thing = 123, "woah string index" = "very value", x3 = -2, inside = {b = 656}}
+            print(cool["woah string index"], cool.thing)
+            cool.thing = "2525"
+            print(cool["thing"], cool.inside.b)
+            cool["fdfdf"] = true
+            cool.x3 = cool.x3 * 2
+            print(cool.fdfdf, cool.x3, cool.what)
+        }
+        "#, "very value 123\n2525 656\ntrue -4 nil\n")
     }
 }

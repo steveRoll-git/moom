@@ -86,6 +86,28 @@ impl ToBytecode for Tree {
                 result
             }
 
+            Tree::CreateTable { init_values } => {
+                let mut result = vec![Bytecode::CreateTable];
+
+                for (index, value) in init_values {
+                    result.append(&mut index.get_bytecode());
+                    result.append(&mut value.get_bytecode());
+                    result.push(Bytecode::SetTable { keep_table: true });  
+                }
+                
+                result
+            }
+
+            Tree::ObjectIndex { object, index } => {
+                let mut result = vec![];
+
+                result.append(&mut object.get_bytecode());
+                result.append(&mut index.get_bytecode());
+                result.push(Bytecode::GetTable);
+
+                result
+            }
+
             Tree::IfTree { true_part, elseifs, else_body } => {
                 let all_ifs: Vec<&IfPart> = std::iter::once(true_part).chain(elseifs).collect();
 
@@ -150,17 +172,22 @@ impl ToBytecode for Tree {
             Tree::Assignment { target, value } => {
                 let mut result = vec![];
 
-                result.append(&mut value.get_bytecode());
-
                 match target.as_ref() {
                     Tree::BindingValue(binding) => {
                         match binding {
                             Binding::Builtin(_) => panic!("Cannot assign to a builtin value"),
                             Binding::Local(index) => {
+                                result.append(&mut value.get_bytecode());
                                 result.push(Bytecode::SetLocal(*index))
                             },
                         }
                     },
+                    Tree::ObjectIndex { object, index } => {
+                        result.append(&mut object.get_bytecode());
+                        result.append(&mut index.get_bytecode());
+                        result.append(&mut value.get_bytecode());
+                        result.push(Bytecode::SetTable { keep_table: false });
+                    }
                     _ => panic!("Invalid assignment")
                 }
 

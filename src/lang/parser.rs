@@ -167,6 +167,48 @@ impl Parser {
                 let op = UnaryOperator::get_operator(p).unwrap();
                 return Ok(Tree::UnaryOp { operator: op, expression: Box::new(self.parse_primary()?) });
             }
+            Token::Punctuation(Punctuation::LCurly) => {
+                // parse table initializer - keys and values
+                let mut pairs: Vec<(Box<Tree>, Box<Tree>)> = vec![];
+
+                self.next_token()?;
+
+                while self.current_token != Token::Punctuation(Punctuation::RCurly) {
+                    let index: Tree = match self.current_token.clone() {
+                        Token::Identifier(name) => {
+                            self.next_token()?;
+                            self.get_string_literal(&name)
+                        },
+                        Token::String(name) => {
+                            self.next_token()?;
+                            self.get_string_literal(&name)
+                        },
+                        Token::Punctuation(Punctuation::LSquare) => {
+                            self.next_token()?;
+                            let index = self.parse_expression()?;
+                            self.expect_punctuation(Punctuation::RSquare)?;
+                            index
+                        },
+                        _ => return self.unexpected_token(self.previous_position(), self.current_token.clone())
+                    };
+
+                    self.expect_punctuation(Punctuation::Assign)?;
+
+                    let value = self.parse_expression()?;
+
+                    pairs.push((Box::new(index), Box::new(value)));
+
+                    if self.current_token == Token::Punctuation(Punctuation::Comma) {
+                        self.next_token()?;
+                    } else if self.current_token != Token::Punctuation(Punctuation::RCurly) {
+                        return self.unexpected_token(self.previous_position(), self.current_token.clone());
+                    }
+                }
+
+                self.next_token()?;
+
+                return Ok(Tree::CreateTable { init_values: pairs });
+            }
             _ => return self.parse_index_or_call(None)
         };
         self.next_token()?;
@@ -230,11 +272,28 @@ impl Parser {
             }
             Token::Punctuation(Punctuation::Dot) => {
                 // member index
-                todo!()
+                self.next_token()?;
+
+                let name = self.expect_identifier()?;
+                let index = self.get_string_literal(&name);
+
+                return self.parse_index_or_call(Some(Tree::ObjectIndex {
+                    object: Box::new(object),
+                    index: Box::new(index)
+                }));
             }
             Token::Punctuation(Punctuation::LSquare) => {
-                // array index
-                todo!()
+                // expression index
+                self.next_token()?;
+
+                let index = self.parse_expression()?;
+
+                self.expect_punctuation(Punctuation::RSquare)?;
+
+                return self.parse_index_or_call(Some(Tree::ObjectIndex {
+                    object: Box::new(object),
+                    index: Box::new(index)
+                }));
             }
             _ => Ok(object)
         }

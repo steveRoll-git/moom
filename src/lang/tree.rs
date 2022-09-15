@@ -128,6 +128,15 @@ pub enum Tree {
         expression: Box<Tree>
     },
 
+    CreateTable {
+        init_values: Vec<(Box<Tree>, Box<Tree>)>
+    },
+
+    ObjectIndex {
+        object: Box<Tree>,
+        index: Box<Tree>,
+    },
+
     IfTree {
         true_part: IfPart,
         elseifs: Vec<IfPart>,

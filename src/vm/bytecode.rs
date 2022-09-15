@@ -82,4 +82,17 @@ pub enum Bytecode {
 
     /// Sets the specificed local to the last value on the stack.
     SetLocal(usize),
+
+    /// Creates a new table and pushes it onto the stack.
+    CreateTable,
+
+    /// Pops index value, then table value, and pushes what the table contains at that index.
+    GetTable,
+
+    /// Pops desired value, then index value, then table value (if specified), and sets the table's
+    /// value at that index.
+    SetTable { 
+        /// If `true`, the table _won't_ be popped off the stack after finishing the operation.
+        keep_table: bool
+    },
 }

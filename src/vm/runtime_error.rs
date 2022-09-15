@@ -12,6 +12,10 @@ pub enum RuntimeError {
     ComparingMismatchedTypes(Value, Value),
     /// Tried calling a value that can't be called
     CallNonFunction(Value),
+    /// Tried to index a value that isn't a table
+    IndexNonTable(Value),
+    /// Tried to index a table with a value that isn't a string
+    IndexWithNonString(Value),
     /// Custom error, used by builtin functions.
     Custom(String),
 }
@@ -32,6 +36,12 @@ impl Display for RuntimeError {
             }
             RuntimeError::CallNonFunction(a) => {
                 write!(f, "Can't call a {} value", a.get_type_name())
+            }
+            RuntimeError::IndexNonTable(a) => {
+                write!(f, "Can't index a {} value", a.get_type_name())
+            }
+            RuntimeError::IndexWithNonString(a) => {
+                write!(f, "Can't index a table with a {} value", a.get_type_name())
             }
             RuntimeError::Custom(message) => {
                 write!(f, "{}", message)
