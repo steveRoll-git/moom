@@ -64,6 +64,10 @@ pub enum Bytecode {
     /// Replaces value at the top of the stack with its boolean inverse.
     Not,
 
+    /// Pops two values off the stack, concats them into a string and pushes that.
+    /// (first value pushed .. second value)
+    Concat,
+
     /// Jumps x instructions forward. (can be negative too)
     Jump(isize),
 

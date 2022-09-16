@@ -7,7 +7,7 @@ pub const DEFAULT_BUILTINS: &BuiltinList = &[
     ("print", |vm: &mut VM, parameters: Vec<Value>| {
         let mut result = String::new();
         for param in parameters.iter().enumerate() {
-            result.push_str(&vm.value_to_string(param.1));
+            result.push_str(&vm.string_storage.value_to_string(param.1));
             if param.0 < parameters.len() - 1 {
                 result.push(' ');
             }

@@ -23,6 +23,7 @@ impl BinaryOperator {
             BinaryOperator::GEqual => vec![Bytecode::CompareGEqual],
             BinaryOperator::BooleanAnd => vec![Bytecode::BooleanAnd],
             BinaryOperator::BooleanOr => vec![Bytecode::BooleanOr],
+            BinaryOperator::Concat => vec![Bytecode::Concat],
         }
     }
 }

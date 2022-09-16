@@ -20,7 +20,8 @@ pub enum BinaryOperator {
     LEqual,
     GEqual,
     BooleanAnd,
-    BooleanOr
+    BooleanOr,
+    Concat,
 }
 impl BinaryOperator {
     pub fn get_operator(token: &Token) -> Option<BinaryOperator> {
@@ -37,6 +38,7 @@ impl BinaryOperator {
             Token::Punctuation(Punctuation::LEqual) => Some(BinaryOperator::LEqual),
             Token::Punctuation(Punctuation::BooleanAnd) => Some(BinaryOperator::BooleanAnd),
             Token::Punctuation(Punctuation::BooleanOr) => Some(BinaryOperator::BooleanOr),
+            Token::Punctuation(Punctuation::Concat) => Some(BinaryOperator::Concat),
             _ => None
         }
     }
@@ -52,6 +54,8 @@ impl BinaryOperator {
             BinaryOperator::Add | BinaryOperator::Sub => 2,
 
             BinaryOperator::Mul | BinaryOperator::Div => 3,
+
+            BinaryOperator::Concat => 4,
         }
     }
     pub fn associativity(&self) -> Associativity {

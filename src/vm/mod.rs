@@ -167,6 +167,17 @@ impl<T: Markable> GCObjectStorage<T> {
     }
 }
 
+impl GCObjectStorage<String> {
+    fn value_to_string(&self, value: &Value) -> String {
+        match value {
+            Value::String(index) => {
+                self.get_object(index).value.clone()
+            },
+            _ => value.to_string(),
+        }
+    }
+}
+
 /// Stores all information about a running function: its instruction pointer, value stack, etc.
 struct StackFrame {
     /// Index of the running function prototype.
@@ -275,15 +286,6 @@ impl VM {
         }
     }
 
-    fn value_to_string(&self, value: &Value) -> String {
-        match value {
-            Value::String(index) => {
-                self.string_storage.get_object(index).value.clone()
-            },
-            _ => value.to_string(),
-        }
-    }
-
     fn last_frame(&mut self) -> &mut StackFrame {
         self.stack_frames
             .last_mut()
@@ -373,6 +375,16 @@ impl VM {
             Bytecode::Not => {
                 let a = last_frame.pop_value()?;
                 last_frame.push_value(Value::Boolean(!a.is_truthy()));
+            }
+            Bytecode::Concat => {
+                let b = last_frame.pop_value()?;
+                let a = last_frame.pop_value()?;
+
+                let mut result = self.string_storage.value_to_string(&a);
+                result.push_str(&self.string_storage.value_to_string(&b));
+
+                let index = self.string_storage.insert(result);
+                last_frame.push_value(Value::String(index));
             }
             Bytecode::Jump(amount) => {
                 next_instruction = (last_frame.instruction_pointer as isize + amount) as usize;
@@ -731,7 +743,7 @@ mod vm_tests {
             }
         }
         func sayHello(name, time) {
-            print("Hello", name, ", have a nice", time, "!")
+            print("Hello " .. name .. ", have a nice " .. time .. "!")
         }
         func main() {
             print(square(5.5) - 1)
@@ -739,6 +751,15 @@ mod vm_tests {
             print(factorial(6))
         }
         "#,
-        "29.25\nHello people , have a nice evening !\n720\n")
+        "29.25\nHello people, have a nice evening!\n720\n")
+    }
+
+    #[test]
+    fn test_string() {
+        assert_program(r#"
+        func main() {
+            print(1 .. 2 .. 3)
+        }
+        "#, "123\n")
     }
 }

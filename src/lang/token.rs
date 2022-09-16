@@ -50,6 +50,8 @@ pub enum Punctuation {
     BooleanOr,
     #[strum(serialize = "!")]
     Exclamation,
+    #[strum(serialize = "..")]
+    Concat,
     #[strum(serialize = ".")]
     Dot,
     #[strum(serialize = ",")]
