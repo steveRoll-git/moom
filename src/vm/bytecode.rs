@@ -15,6 +15,9 @@ pub enum Bytecode {
     /// Pushes the local variable onto the stack.
     PushLocal(usize),
 
+    /// Pushes a function from the program onto the stack.
+    PushFunction(usize),
+
     /// Pops the last two numbers on the stack, and pushes their sum.
     AddNumbers,
 

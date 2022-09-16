@@ -12,6 +12,7 @@ pub use crate::vm::program::Program;
 use crate::vm::Value::{Boolean, Nil};
 
 use self::default_builtins::{BuiltinList, DEFAULT_BUILTINS};
+use self::program::FunctionRef;
 
 mod bytecode;
 pub mod default_builtins;
@@ -169,9 +170,7 @@ impl<T: Markable> GCObjectStorage<T> {
 /// Stores all information about a running function: its instruction pointer, value stack, etc.
 struct StackFrame {
     /// Index of the running function prototype.
-    /// 0 - the main function, any other number is an index to the functions array, minus one
-    /// TODO change this to a custom union type
-    function: usize,
+    function: FunctionRef,
 
     /// Stack of temporary values used for calculating expressions.
     value_stack: Vec<Value>,
@@ -297,11 +296,7 @@ impl VM {
             .last_mut()
             .expect("tried to run without any stack frames");
 
-        let function: &Function = if last_frame.function == 0 {
-            &self.program.main_function
-        } else {
-            &self.program.functions[last_frame.function - 1]
-        };
+        let function: &Function = self.program.get_function(&last_frame.function);
         let instruction: &Bytecode = function.code
             .get(last_frame.instruction_pointer)
             .expect("instruction pointer out of range");
@@ -326,6 +321,9 @@ impl VM {
             }
             Bytecode::PushLocal(i) => {
                 last_frame.push_value(last_frame.locals[*i]);
+            }
+            Bytecode::PushFunction(i) => {
+                last_frame.push_value(Value::Function { prototype_index: *i });
             }
             Bytecode::AddNumbers => {
                 last_frame.binary_math_op(|a: f64, b: f64| a + b)?;
@@ -405,7 +403,19 @@ impl VM {
                 }
                 match the_function {
                     Value::Function { prototype_index } => {
-                        todo!()
+                        last_frame.instruction_pointer = next_instruction;
+                        let the_function = &self.program.functions[prototype_index];
+                        let mut locals = parameters;
+                        for _ in 0..the_function.num_params - locals.len() {
+                            locals.push(Value::Nil);
+                        }
+                        self.stack_frames.push(StackFrame {
+                            function: FunctionRef::Function(prototype_index),
+                            value_stack: vec![],
+                            locals,
+                            instruction_pointer: 0,
+                        });
+                        return Ok(());
                     }
                     Value::ExternalFunction(index) => {
                         let the_function = self.external_functions[index];
@@ -489,7 +499,7 @@ impl VM {
 
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         self.stack_frames.push(StackFrame {
-            function: 0,
+            function: FunctionRef::MainFunction,
             value_stack: vec![],
             locals: vec![Value::Nil; self.program.main_function.stack_size], //TODO use stack size of the actual running function
             instruction_pointer: 0,
@@ -555,7 +565,11 @@ mod vm_tests {
         let program = parser.parse_file();
         match program {
             Ok(program) => {
-                println!("{:?}", program.main_function.code);
+                for (i, func) in program.functions.iter().enumerate() {
+                    println!("{:?}", func);
+                }
+                println!("main\t{:?}", program.main_function.code);
+
                 let mut vm: VM = VM::new(program, None);
                 let mut output = OutputCapturer(Default::default());
                 vm.output = Box::new(output.clone());
@@ -701,5 +715,30 @@ mod vm_tests {
             print(cool.fdfdf, cool.x3, cool.what)
         }
         "#, "very value 123\n2525 656\ntrue -4 nil\n")
+    }
+
+    #[test]
+    fn test_func() {
+        assert_program(r#"
+        func square(x){
+            return x * x
+        }
+        func factorial(x) {
+            if x == 1 {
+                return 1
+            } else {
+                return x * factorial(x - 1)
+            }
+        }
+        func sayHello(name, time) {
+            print("Hello", name, ", have a nice", time, "!")
+        }
+        func main() {
+            print(square(5.5) - 1)
+            sayHello("people", "evening")
+            print(factorial(6))
+        }
+        "#,
+        "29.25\nHello people , have a nice evening !\n720\n")
     }
 }

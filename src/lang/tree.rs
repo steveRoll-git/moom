@@ -97,12 +97,15 @@ pub enum Binding {
     Builtin(usize),
     /// Local variable
     Local(usize),
+    /// User function
+    Function(usize),
 }
 impl ToBytecode for Binding {
     fn get_bytecode(&self) -> Vec<Bytecode> {
         match self {
             Binding::Builtin(index) => vec![Bytecode::PushBuiltin(*index)],
-            Binding::Local(index) => vec![Bytecode::PushLocal(*index)]
+            Binding::Local(index) => vec![Bytecode::PushLocal(*index)],
+            Binding::Function(index) => vec![Bytecode::PushFunction(*index)],
         }
     }
 }
@@ -150,7 +153,12 @@ pub enum Tree {
 
     FunctionCall {
         function: Box<Tree>,
-        parameters: Vec<Box<Tree>>
+        parameters: Vec<Box<Tree>>,
+        is_expression: bool,
+    },
+
+    Return {
+        value: Option<Box<Tree>>
     },
 
     Assignment {

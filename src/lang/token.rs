@@ -7,6 +7,7 @@ pub enum Keyword {
     ElseIf,
     Else,
     While,
+    Return,
 
     True,
     False,

@@ -157,7 +157,7 @@ impl ToBytecode for Tree {
                 result
             }
 
-            Tree::FunctionCall { function, parameters } => {
+            Tree::FunctionCall { function, parameters, is_expression } => {
                 let mut result = vec![];
 
                 for parameter in parameters {
@@ -167,19 +167,34 @@ impl ToBytecode for Tree {
                 result.append(&mut function.get_bytecode());
                 result.push(Bytecode::Call { num_args: parameters.len() });
 
+                if *is_expression {
+                    result.push(Bytecode::PushReturn);
+                }
+
                 result
             }
+
+            Tree::Return { value } => {
+                if let Some(value) = value {
+                    let mut result = value.get_bytecode();
+                    result.push(Bytecode::Return(true));
+                    result
+                } else {
+                    vec![Bytecode::Return(false)]
+                }
+            }
+
             Tree::Assignment { target, value } => {
                 let mut result = vec![];
 
                 match target.as_ref() {
                     Tree::BindingValue(binding) => {
                         match binding {
-                            Binding::Builtin(_) => panic!("Cannot assign to a builtin value"),
                             Binding::Local(index) => {
                                 result.append(&mut value.get_bytecode());
                                 result.push(Bytecode::SetLocal(*index))
                             },
+                            _ => panic!("Cannot assign to this kind of value")
                         }
                     },
                     Tree::ObjectIndex { object, index } => {
