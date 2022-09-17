@@ -61,6 +61,8 @@ impl ToBytecode for Tree {
 
             Tree::BoolValue(t) => t.get_bytecode(),
 
+            Tree::NilValue => vec![Bytecode::PushNil],
+
             Tree::BindingValue(t) => t.get_bytecode(),
 
             Tree::BinaryOp { operator, lhs, rhs } => {

@@ -9,6 +9,9 @@ pub enum Bytecode {
     /// Pushes a boolean onto the stack.
     PushBool(bool),
 
+    /// Pushes a nil value onto the stack.
+    PushNil,
+
     /// Pushes the builtin onto the stack.
     PushBuiltin(usize),
 

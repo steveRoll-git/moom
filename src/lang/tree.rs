@@ -122,6 +122,8 @@ pub enum Tree {
 
     BoolValue(bool),
 
+    NilValue,
+
     BindingValue(Binding),
 
     BinaryOp {

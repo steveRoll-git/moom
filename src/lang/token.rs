@@ -11,6 +11,7 @@ pub enum Keyword {
 
     True,
     False,
+    Nil,
 
     Func,
     Var,

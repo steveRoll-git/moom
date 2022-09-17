@@ -318,6 +318,9 @@ impl VM {
             Bytecode::PushBool(b) => {
                 last_frame.push_value(Value::Boolean(*b));
             }
+            Bytecode::PushNil => {
+                last_frame.push_value(Value::Nil);
+            }
             Bytecode::PushBuiltin(i) => {
                 last_frame.push_value(Value::ExternalFunction(*i));
             }
@@ -758,8 +761,8 @@ mod vm_tests {
     fn test_string() {
         assert_program(r#"
         func main() {
-            print(1 .. 2 .. 3)
+            print(1 .. 2 .. "af" .. nil .. 3)
         }
-        "#, "123\n")
+        "#, "12afnil3\n")
     }
 }

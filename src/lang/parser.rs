@@ -158,6 +158,7 @@ impl Parser {
                 match k {
                     Keyword::True => Ok(BoolValue(true)),
                     Keyword::False => Ok(BoolValue(false)),
+                    Keyword::Nil => Ok(Tree::NilValue),
                     _ => self.unexpected_token(position, token)
                 }
             }
