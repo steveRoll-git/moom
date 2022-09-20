@@ -4,6 +4,7 @@ use crate::vm::VM;
 
 mod lang;
 mod vm;
+mod get_hash;
 
 fn main() {
     //TODO this code is temporary, and is mainly here to get rid of deadcode warnings

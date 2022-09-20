@@ -1,8 +1,12 @@
 use std::cell::Cell;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 use std::string::String;
+
+use slotmap::{SlotMap, Key, new_key_type};
+use crate::get_hash::GetHash;
 
 pub use bytecode::Bytecode;
 pub(crate) use program::Function;
@@ -21,15 +25,18 @@ mod runtime_error;
 
 pub type ExternalFunction = fn(&mut VM, Vec<Value>) -> Result<Value, String>;
 
-type Table = HashMap<String, Value>;
+type Table = HashMap<u64, Value>;
+
+const GC_GROWTH_FACTOR: f64 = 1.4;
+const GC_MIN_HEAP_SIZE: usize = 4 * 1024;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
-    String(usize),
-    Table(usize),
+    String(StringKey),
+    Table(TableKey),
     Function { prototype_index: usize },
     ExternalFunction(usize),
 }
@@ -58,8 +65,8 @@ impl Display for Value {
             Nil => write!(f, "nil"),
             Value::Number(n) => write!(f, "{}", n),
             Boolean(b) => write!(f, "{}", b),
-            Value::String(s) => write!(f, "<string {}>", s),
-            Value::Table(i) => write!(f, "<table {}>", i),
+            Value::String(s) => write!(f, "<string {:#x}>", s.data().as_ffi()),
+            Value::Table(t) => write!(f, "<table {:#x}>", t.data().as_ffi()),
             Value::Function { prototype_index } => write!(f, "<function {}>", prototype_index),
             Value::ExternalFunction(index) => write!(f, "<builtin {}>", index),
         }
@@ -107,10 +114,11 @@ impl Markable for Value {
     fn mark(&self, vm: &VM, new_mark: u8) {
         match self {
             Value::String(index) => {
-                vm.string_storage.mark_at(vm, new_mark, index);
+                vm.string_storage.mark_at(vm, new_mark, *index);
             },
-            Value::Function { prototype_index } => todo!(),
-            Value::ExternalFunction(_) => todo!(),
+            Value::Table(index) => {
+                vm.table_storage.mark_at(vm, new_mark, *index);
+            }
             _ => {}
         }
     }
@@ -133,45 +141,52 @@ impl<T: Markable> GCObject<T> {
 const DELETED_MESSAGE: &str = "Object was deleted!";
 
 #[derive(Default)]
-struct GCObjectStorage<T: Markable> {
-    storage: HashMap<usize, GCObject<T>>,
-    /// The index where new items will be inserted to.
-    insertion_index: usize,
+struct GCObjectStorage<K: Key, V: Markable> {
+    storage: SlotMap<K, GCObject<V>>,
 }
 
-impl<T: Markable> GCObjectStorage<T> {
-    fn get_object(&self, index: &usize) -> &GCObject<T> {
+impl<K: Key, V: Markable> GCObjectStorage<K, V> {
+    fn get_object(&self, index: K) -> &GCObject<V> {
         self.storage.get(index).expect(DELETED_MESSAGE)
     }
 
-    fn get_object_mut(&mut self, index: &usize) -> &mut GCObject<T> {
+    fn get_object_mut(&mut self, index: K) -> &mut GCObject<V> {
         self.storage.get_mut(index).expect(DELETED_MESSAGE)
     }
 
-    fn set_next_free_index(&mut self) {
-        while self.storage.contains_key(&self.insertion_index) {
-            self.insertion_index += 1;
-        }
-    }
-
-    fn insert(&mut self, value: T) -> usize {
-        let the_index = self.insertion_index;
-        self.storage.insert(the_index, GCObject { mark: Cell::new(0), value });
-        self.set_next_free_index();
+    fn insert(&mut self, value: V, gc_state: &mut GCState) -> K {
+        let object = GCObject { mark: Cell::new(gc_state.mark), value };
+        gc_state.live_bytes += std::mem::size_of::<V>();
+        let the_index = self.storage.insert(object);
         the_index
     }
 
-    fn mark_at(&self, vm: &VM, new_mark: u8, index: &usize) {
+    fn mark_at(&self, vm: &VM, new_mark: u8, index: K) {
         let object = self.get_object(index);
         object.mark(vm, new_mark);
     }
+
+    fn sweep(&mut self, gc_state: &mut GCState) {
+        let mut count = self.storage.len();
+        self.storage.retain(|_k, v| {
+            let cond = v.mark.get() == gc_state.mark;
+            if !cond {
+                gc_state.live_bytes -= std::mem::size_of::<V>();
+                count -= 1;
+            }
+            cond
+        });
+    }
 }
 
-impl GCObjectStorage<String> {
+new_key_type! { pub struct StringKey; }
+new_key_type! { pub struct TableKey; }
+
+impl GCObjectStorage<StringKey, String> {
     fn value_to_string(&self, value: &Value) -> String {
         match value {
             Value::String(index) => {
-                self.get_object(index).value.clone()
+                self.get_object(*index).value.clone()
             },
             _ => value.to_string(),
         }
@@ -257,13 +272,19 @@ impl StackFrame {
     }
 }
 
+struct GCState {
+    mark: u8,
+    live_bytes: usize,
+    gc_threshold: usize,
+}
+
 pub struct VM {
     stack_frames: Vec<StackFrame>,
     program: Program,
     result: Value,
-    string_storage: GCObjectStorage<String>,
-    table_storage: GCObjectStorage<Table>,
-    gc_mark: u8,
+    string_storage: GCObjectStorage<StringKey, String>,
+    table_storage: GCObjectStorage<TableKey, Table>,
+    gc_state: GCState,
     external_functions: Vec<ExternalFunction>,
 
     output: Box<dyn Write>,
@@ -277,7 +298,7 @@ impl VM {
             result: Value::Nil,
             string_storage: Default::default(),
             table_storage: Default::default(),
-            gc_mark: 0,
+            gc_state: GCState { mark: 0, live_bytes: 0, gc_threshold: 4 * 1024 },
             external_functions: {
                 let the_builtins = builtins.unwrap_or(DEFAULT_BUILTINS);
                 the_builtins.iter().map(|func| func.1).collect()
@@ -312,7 +333,7 @@ impl VM {
                 last_frame.push_value(Value::Number(*n));
             }
             Bytecode::PushStringLiteral(index) => {
-                let index = self.string_storage.insert(self.program.string_literals[*index].clone());
+                let index = self.string_storage.insert(self.program.string_literals[*index].clone(), &mut self.gc_state);
                 last_frame.push_value(Value::String(index));
             }
             Bytecode::PushBool(b) => {
@@ -386,7 +407,7 @@ impl VM {
                 let mut result = self.string_storage.value_to_string(&a);
                 result.push_str(&self.string_storage.value_to_string(&b));
 
-                let index = self.string_storage.insert(result);
+                let index = self.string_storage.insert(result, &mut self.gc_state);
                 last_frame.push_value(Value::String(index));
             }
             Bytecode::Jump(amount) => {
@@ -463,7 +484,7 @@ impl VM {
                 last_frame.locals[*index] = last_frame.value_stack.pop().expect(EMPTY_STACK_MESSAGE);
             },
             Bytecode::CreateTable => {
-                let index = self.table_storage.insert(HashMap::new());
+                let index = self.table_storage.insert(HashMap::new(), &mut self.gc_state);
                 last_frame.value_stack.push(Value::Table(index));
             },
             Bytecode::GetTable => {
@@ -472,10 +493,10 @@ impl VM {
 
                 if let Value::Table(table_index) = table {
                     if let Value::String(string_index) = index {
-                        let the_table = &self.table_storage.get_object(&table_index).value;
-                        let the_index = &self.string_storage.get_object(&string_index).value;
+                        let the_table = &self.table_storage.get_object(table_index).value;
+                        let the_index = &self.string_storage.get_object(string_index).value;
 
-                        last_frame.value_stack.push(*the_table.get(the_index).unwrap_or(&Value::Nil));
+                        last_frame.value_stack.push(*the_table.get(&the_index.get_hash()).unwrap_or(&Value::Nil));
                     } else {
                         return Err(RuntimeError::IndexWithNonString(index));
                     }
@@ -490,10 +511,9 @@ impl VM {
                 
                 if let Value::Table(table_index) = table {
                     if let Value::String(string_index) = index {
-                        let the_table = &mut self.table_storage.get_object_mut(table_index).value;
-                        let the_index = &self.string_storage.get_object(&string_index).value;
-
-                        the_table.insert(the_index.to_string(), value);
+                        let the_table = &mut self.table_storage.get_object_mut(*table_index).value;
+                        let the_index = &self.string_storage.get_object(string_index).value;
+                        the_table.insert(the_index.get_hash(), value);
                     } else {
                         return Err(RuntimeError::IndexWithNonString(index));
                     }
@@ -509,14 +529,38 @@ impl VM {
 
         self.last_frame().instruction_pointer = next_instruction;
 
+        if self.gc_state.live_bytes > self.gc_state.gc_threshold && self.last_frame().value_stack.len() == 0 {
+            self.collect_garbage();
+        }
+
         Ok(())
+    }
+
+    pub fn collect_garbage(&mut self) {
+        self.gc_state.mark = 1 - self.gc_state.mark;
+
+        for frame in &self.stack_frames {
+            for val in &frame.locals {
+                val.mark(self, self.gc_state.mark);
+            }
+            for val in &frame.value_stack {
+                val.mark(self, self.gc_state.mark);
+            }
+        }
+
+        self.result.mark(self, self.gc_state.mark);
+
+        self.string_storage.sweep(&mut self.gc_state);
+        self.table_storage.sweep(&mut self.gc_state);
+
+        self.gc_state.gc_threshold = max((self.gc_state.live_bytes as f64 * GC_GROWTH_FACTOR) as usize, GC_MIN_HEAP_SIZE);
     }
 
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         self.stack_frames.push(StackFrame {
             function: FunctionRef::MainFunction,
             value_stack: vec![],
-            locals: vec![Value::Nil; self.program.main_function.stack_size], //TODO use stack size of the actual running function
+            locals: vec![Value::Nil; self.program.main_function.stack_size],
             instruction_pointer: 0,
         });
         while !self.stack_frames.is_empty() {
