@@ -196,7 +196,7 @@ impl GCObjectStorage<StringKey, String> {
 /// Stores all information about a running function: its instruction pointer, value stack, etc.
 struct StackFrame {
     /// Index of the running function prototype.
-    function: FunctionRef,
+    function: usize,
 
     /// Stack of temporary values used for calculating expressions.
     value_stack: Vec<Value>,
@@ -319,7 +319,7 @@ impl VM {
             .last_mut()
             .expect("tried to run without any stack frames");
 
-        let function: &Function = self.program.get_function(&last_frame.function);
+        let function: &Function = &self.program.functions[last_frame.function];
         let instruction: &Bytecode = function.code
             .get(last_frame.instruction_pointer)
             .expect("instruction pointer out of range");
@@ -446,7 +446,7 @@ impl VM {
                             locals.push(Value::Nil);
                         }
                         self.stack_frames.push(StackFrame {
-                            function: FunctionRef::Function(prototype_index),
+                            function: prototype_index,
                             value_stack: vec![],
                             locals,
                             instruction_pointer: 0,
@@ -558,9 +558,9 @@ impl VM {
 
     pub fn run(&mut self) -> Result<(), RuntimeError> {
         self.stack_frames.push(StackFrame {
-            function: FunctionRef::MainFunction,
+            function: 0,
             value_stack: vec![],
-            locals: vec![Value::Nil; self.program.main_function.stack_size],
+            locals: vec![Value::Nil; self.program.functions[self.program.main_function].stack_size],
             instruction_pointer: 0,
         });
         while !self.stack_frames.is_empty() {
@@ -581,7 +581,7 @@ mod vm_tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::lang::Parser;
+    use crate::lang::{Parser, linker::link};
 
     use super::*;
 
@@ -621,27 +621,35 @@ mod vm_tests {
         }
 
         let mut parser = Parser::new(Box::new(code.chars()), "code".to_string(), None);
-        let program = parser.parse_file();
-        match program {
-            Ok(program) => {
-                for (i, func) in program.functions.iter().enumerate() {
-                    println!("{:?}", func);
-                }
-                println!("main\t{:?}", program.main_function.code);
+        let file = parser.parse_file();
+        match file {
+            Ok(file) => {
+                let program = link(vec![file]);
 
-                let mut vm: VM = VM::new(program, None);
-                let mut output = OutputCapturer(Default::default());
-                vm.output = Box::new(output.clone());
-                match vm.run() {
-                    Ok(_) => {}
+                match program {
+                    Ok(program) => {
+                        for (i, func) in program.functions.iter().enumerate() {
+                            println!("{:?}", func);
+                        }
+
+                        let mut vm: VM = VM::new(program, None);
+                        let mut output = OutputCapturer(Default::default());
+                        vm.output = Box::new(output.clone());
+                        match vm.run() {
+                            Ok(_) => {}
+                            Err(error) => {
+                                panic!("Runtime Error:\n{}", error)
+                            }
+                        }
+                        assert_eq!(
+                            String::from_utf8_lossy(output.0.lock().unwrap().as_slice()),
+                            expected_output
+                        );
+                    },
                     Err(error) => {
-                        panic!("Runtime Error:\n{}", error)
-                    }
+                        panic!("Error: {}", error);
+                    },
                 }
-                assert_eq!(
-                    String::from_utf8_lossy(output.0.lock().unwrap().as_slice()),
-                    expected_output
-                );
             }
             Err(e) => {
                 panic!("Error: {}", e);
@@ -792,13 +800,26 @@ mod vm_tests {
         func sayHello(name, time) {
             print("Hello " .. name .. ", have a nice " .. time .. "!")
         }
+        func a(x) {
+            if x == 0 {
+                return "a0"
+            }
+            return "a" .. x .. b(x - 1)
+        }
+        func b(x) {
+            if x == 0 {
+                return "b0"
+            }
+            return "b" .. x .. a(x - 1)
+        }
         func main() {
             print(square(5.5) - 1)
             sayHello("people", "evening")
             print(factorial(6))
+            print(a(4))
         }
         "#,
-        "29.25\nHello people, have a nice evening!\n720\n")
+        "29.25\nHello people, have a nice evening!\n720\na4b3a2b1a0\n")
     }
 
     #[test]

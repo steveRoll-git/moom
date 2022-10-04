@@ -54,12 +54,11 @@ impl fmt::Display for SyntaxErrorKind {
 
 pub struct SyntaxError {
     pub error: SyntaxErrorKind,
-    pub source_name: String,
     pub position: Position
 }
 
 impl fmt::Display for SyntaxError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}:{}: {}", self.source_name, self.position.line + 1, self.position.column, self.error)
+        write!(f, "{}:{}:{}: {}", self.position.source_name, self.position.line + 1, self.position.column, self.error)
     }
 }

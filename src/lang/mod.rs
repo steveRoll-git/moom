@@ -3,8 +3,9 @@ mod lexer;
 mod syntax_error;
 mod position;
 mod parser;
-pub mod tree;
+pub mod syntax_tree;
 pub mod bc_impls;
+pub mod linker;
 
 pub use token::Token as Token;
 pub use lexer::Lexer as Lexer;

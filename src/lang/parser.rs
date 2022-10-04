@@ -1,17 +1,21 @@
+use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::HashMap;
-use std::default;
 
 use crate::lang::{Lexer, Position, SyntaxError, SyntaxErrorKind, ToBytecode, Token};
 use crate::lang::token::{Keyword, Punctuation};
-use crate::lang::tree::{BinaryOperator, Binding, Tree, UnaryOperator};
-use crate::lang::tree::Tree::{BoolValue, NumberValue, StringLiteralValue};
+use crate::lang::syntax_tree::{BinaryOperator, Binding, Tree, UnaryOperator};
+use crate::lang::syntax_tree::Tree::{BoolValue, NumberValue};
 use crate::vm::{Bytecode, Function, Program};
 use crate::vm::default_builtins::{DEFAULT_BUILTINS, BuiltinList};
 
-use super::tree::IfPart;
+use super::syntax_tree::{IfPart, FileTree, FunctionDef, LateReference, IdentifierPosition, StringLiteral};
 
 const INFIX_ERROR_MESSAGE: &str = "Invalid infix expression state";
+
+fn string_literal(s: String) -> Tree {
+    Tree::StringLiteral(RefCell::new(StringLiteral::NotIndexed(s)))
+}
 
 struct Scope {
     pub bindings: HashMap<String, Binding>,
@@ -19,10 +23,10 @@ struct Scope {
     pub last_local: usize,
 }
 
+/// Parses a stream of tokens into an AST.
 pub struct Parser {
     lexer: Lexer,
     current_token: Token,
-    string_literals: Vec<String>,
     file_scope: HashMap<String, Binding>,
     binding_scopes: Vec<Scope>,
 }
@@ -41,7 +45,6 @@ impl Parser {
                     bindings
 
             },
-            string_literals: vec![],
             binding_scopes: vec![],
         }
     }
@@ -70,7 +73,6 @@ impl Parser {
     fn unexpected_token<T>(&self, position: Position, token: Token) -> Result<T, SyntaxError> {
         Err(SyntaxError {
             error: SyntaxErrorKind::UnexpectedToken(token),
-            source_name: self.source_name(),
             position,
         })
     }
@@ -86,7 +88,6 @@ impl Parser {
 
         Err(SyntaxError {
             error: SyntaxErrorKind::ExpectedXButGotY { expected: Token::Punctuation(expect), got: self.current_token.clone() },
-            source_name: self.source_name(),
             position,
         })
     }
@@ -102,7 +103,6 @@ impl Parser {
 
         Err(SyntaxError {
             error: SyntaxErrorKind::ExpectedXButGotY { expected: Token::Keyword(expect), got: self.current_token.clone() },
-            source_name: self.source_name(),
             position,
         })
     }
@@ -116,33 +116,24 @@ impl Parser {
 
         Err(SyntaxError {
             error: SyntaxErrorKind::ExpectedIdentifierButGotX(self.current_token.clone()),
-            source_name: self.source_name(),
             position,
         })
     }
 
-    fn get_binding(&self, name: &str) -> Option<Binding> {
+    fn get_binding(&self, name: &str) -> Binding {
         for scope in self.binding_scopes.iter().rev() {
             if let Some(binding) = scope.bindings.get(name) {
-                return Some(*binding);
+                return binding.clone();
             }
         }
         if let Some(binding) = self.file_scope.get(name) {
-            return Some(*binding)
+            return binding.clone();
         }
 
-        None
-    }
-
-    fn get_string_literal(&mut self, literal: &String) -> Tree {
-        Tree::StringLiteralValue(
-            if let Some(index) = self.string_literals.iter().position(|x| *x == *literal) {
-                index
-            } else {
-                self.string_literals.push(literal.clone());
-                self.string_literals.len() - 1
-            }
-        )
+        Binding::LateReference(RefCell::new(LateReference::Unresolved(IdentifierPosition {
+            name: name.to_string(),
+            position: self.position(),
+        })))
     }
 
     fn parse_primary(&mut self) -> Result<Tree, SyntaxError> {
@@ -152,7 +143,7 @@ impl Parser {
             Token::EOF => { self.unexpected_token(position, token) }
             Token::Number(n) => Ok(NumberValue(n)),
             Token::String(s) => {
-                Ok(self.get_string_literal(&s))
+                Ok(string_literal(s))
             },
             Token::Keyword(k) => {
                 match k {
@@ -178,11 +169,11 @@ impl Parser {
                     let index: Tree = match self.current_token.clone() {
                         Token::Identifier(name) => {
                             self.next_token()?;
-                            self.get_string_literal(&name)
+                            string_literal(name)
                         },
                         Token::String(name) => {
                             self.next_token()?;
-                            self.get_string_literal(&name)
+                            string_literal(name)
                         },
                         Token::Punctuation(Punctuation::LSquare) => {
                             self.next_token()?;
@@ -227,15 +218,7 @@ impl Parser {
             match self.current_token.clone() {
                 Token::Identifier(name) => {
                     self.next_token()?;
-                    if let Some(binding) = self.get_binding(&name) {
-                        Ok(Tree::BindingValue(binding))
-                    } else {
-                        Err(SyntaxError {
-                            error: SyntaxErrorKind::UnresolvedName(name),
-                            source_name: self.source_name(),
-                            position,
-                        })
-                    }
+                    Ok(Tree::BindingValue(self.get_binding(&name)))
                 }
                 Token::Punctuation(Punctuation::LParen) => {
                     self.next_token()?;
@@ -277,7 +260,7 @@ impl Parser {
                 self.next_token()?;
 
                 let name = self.expect_identifier()?;
-                let index = self.get_string_literal(&name);
+                let index = string_literal(name);
 
                 return self.parse_index_or_call(Some(Tree::ObjectIndex {
                     object: Box::new(object),
@@ -508,11 +491,10 @@ impl Parser {
         })
     }
 
-    pub fn parse_file(&mut self) -> Result<Program, SyntaxError> {
+    pub fn parse_file(&mut self) -> Result<FileTree, SyntaxError> {
         self.next_token()?;
 
-        let mut functions: Vec<Function> = vec![];
-        let mut main_function: Option<Function> = None;
+        let mut functions: Vec<FunctionDef> = vec![];
 
         while !self.lexer.reached_end() {
             let name_position = self.position();
@@ -522,22 +504,12 @@ impl Parser {
                     self.next_token()?;
 
                     let name = self.expect_identifier()?;
-                    if name != "main" {
-                        if let Some(Binding::Function(_)) = self.get_binding(&name) {
-                            return Err(SyntaxError {
-                                error: SyntaxErrorKind::DuplicateFunctionDefinition(name.clone()),
-                                source_name: self.source_name(),
-                                position: name_position,
-                            });
-                        }
-                        self.file_scope.insert(name.clone(), Binding::Function(functions.len()));
-                    }
 
                     self.expect_punctuation(Punctuation::LParen)?;
 
-                    let mut param_names = vec![];
+                    let mut params = vec![];
                     while self.current_token != Token::Punctuation(Punctuation::RParen) {
-                        param_names.push(self.expect_identifier()?);
+                        params.push(self.expect_identifier()?);
                         if self.current_token == Token::Punctuation(Punctuation::Comma) {
                             self.next_token()?;
                         } else if self.current_token != Token::Punctuation(Punctuation::RParen) {
@@ -547,54 +519,43 @@ impl Parser {
 
                     self.expect_punctuation(Punctuation::RParen)?;
 
-                    let block = self.parse_block(Some(&param_names))?;
+                    let body = self.parse_block(Some(&params))?;
 
-                    if let Tree::Block { statements, stack_size } = block {
-                        let mut function = Function {
-                            code: statements.get_bytecode(),
-                            num_params: param_names.len(),
-                            stack_size
-                        };
-                        if !matches!(function.code.last(), Some(Bytecode::Return(_))) {
-                            function.code.push(Bytecode::Return(false));
-                        }
-                        if name == "main" {
-                            main_function = Some(function);
-                        } else {
-                            functions.push(function);
-                        }
-
-                    }
+                    functions.push(FunctionDef {
+                        name,
+                        params,
+                        stack_size: {
+                            if let Tree::Block { stack_size, .. } = &body {
+                                *stack_size
+                            } else {
+                                panic!()
+                            }
+                        },
+                        body,
+                        position_defined: name_position,
+                    })
                 }
                 _ => return self.unexpected_token(self.position(), token)
             }
         }
 
-        if let Some(func) = main_function {
-            Ok(Program {
-                functions,
-                main_function: func,
-                string_literals: self.string_literals.clone()
-            })
-        } else {
-            Err(SyntaxError {
-                error: SyntaxErrorKind::MissingMainFunction,
-                source_name: self.source_name(),
-                position: self.position(),
-            })
-        }
+        Ok(FileTree {
+            function_defs: functions
+        })
     }
 
     pub fn parse_expression_program(&mut self) -> Result<Program, SyntaxError> {
         self.next_token()?;
         let body = self.parse_expression()?;
         Ok(Program {
-            functions: vec![],
-            main_function: {
-                let mut bytecode = body.get_bytecode();
-                bytecode.push(Bytecode::Return(true));
-                Function { code: bytecode, num_params: 0, stack_size: 0 }
-            },
+            functions: vec![
+                {
+                    let mut bytecode = body.get_bytecode();
+                    bytecode.push(Bytecode::Return(true));
+                    Function { code: bytecode, num_params: 0, stack_size: 0 }
+                }
+            ],
+            main_function: 0,
             string_literals: vec![],
         })
     }

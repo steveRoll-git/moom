@@ -1,4 +1,4 @@
-use lang::Parser;
+use lang::{Parser, linker::link};
 
 use crate::vm::VM;
 
@@ -13,20 +13,32 @@ fn main() {
         print(\"moom works!\");
     }";
     let mut parser = Parser::new(Box::new(code.chars()), "code".to_string(), None);
-    let program = parser.parse_file();
-    match program {
-        Ok(program) => {
-            let mut vm: VM = VM::new(program, None);
-            match vm.run() {
-                Ok(_) => {}
-                Err(error) => {
-                    panic!("Runtime Error:\n{}", error)
-                }
+    let file = parser.parse_file();
+    let mut syntax_error = None;
+    match file {
+        Ok(file) => {
+            let program = link(vec![file]);
+            match program {
+                Ok(program) => {
+                    let mut vm: VM = VM::new(program, None);
+                    match vm.run() {
+                        Ok(_) => {}
+                        Err(error) => {
+                            panic!("Runtime Error:\n{}", error)
+                        }
+                    }
+                },
+                Err(e) => {
+                    syntax_error = Some(e);
+                },
             }
         }
         Err(e) => {
-            println!("Error: {}", e);
-            panic!();
+            syntax_error = Some(e);
         }
+    }
+
+    if let Some(e) = syntax_error {
+        panic!("Error: {}", e);
     }
 }

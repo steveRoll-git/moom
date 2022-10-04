@@ -1,7 +1,9 @@
-use crate::lang::tree::{BinaryOperator, Tree, UnaryOperator, Binding};
+use std::ops::Deref;
+
+use crate::lang::syntax_tree::{BinaryOperator, Tree, UnaryOperator, Binding};
 use crate::vm::Bytecode;
 
-use super::tree::IfPart;
+use super::syntax_tree::{IfPart, StringLiteral};
 
 pub trait ToBytecode {
     fn get_bytecode(&self) -> Vec<Bytecode>;
@@ -57,7 +59,16 @@ impl ToBytecode for Tree {
         match self {
             Tree::NumberValue(t) => t.get_bytecode(),
 
-            Tree::StringLiteralValue(t) => vec![Bytecode::PushStringLiteral(*t)],
+            Tree::StringLiteral(t) => vec![
+                match t.borrow().deref() {
+                    StringLiteral::NotIndexed(_) => {
+                        panic!("Unindexed string literal???")
+                    },
+                    StringLiteral::Indexed(i) => {
+                        Bytecode::PushStringLiteral(*i)
+                    },
+                }
+            ],
 
             Tree::BoolValue(t) => t.get_bytecode(),
 

@@ -1,9 +1,10 @@
 use std::fmt::{Display, Formatter};
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Debug)]
 pub struct Position {
     pub line: i64,
     pub column: i64,
+    pub source_name: String,
 }
 
 impl Display for Position {

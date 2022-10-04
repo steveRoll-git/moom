@@ -22,10 +22,10 @@ impl Lexer {
     pub fn new(code_iterator: Box<dyn Iterator<Item=char>>, source_name: String) -> Lexer {
         let mut l = Lexer {
             code_iterator,
-            source_name,
             current_index: 0,
-            position: Position { line: 0, column: 0 },
-            previous_position: Position { line: 0, column: 0 },
+            position: Position { line: 0, column: 0, source_name: source_name.clone() },
+            previous_position: Position { line: 0, column: 0, source_name: source_name.clone() },
+            source_name,
             current_char: '\0',
             reached_end: false,
         };
@@ -61,10 +61,10 @@ impl Lexer {
         self.source_name.clone()
     }
     pub fn position(&self) -> Position {
-        self.position
+        self.position.clone()
     }
     pub fn previous_position(&self) -> Position {
-        self.previous_position
+        self.previous_position.clone()
     }
 
     pub fn next(&mut self) -> Result<Token, SyntaxError> {
@@ -72,7 +72,7 @@ impl Lexer {
         while !self.reached_end && self.current_char.is_whitespace() {
             self.advance_char();
             if self.current_char == '/' {
-                let initial_position = self.position;
+                let initial_position = self.position.clone();
                 self.advance_char();
                 if self.current_char == '/' {
                     // single line comment
@@ -93,7 +93,6 @@ impl Lexer {
                         if self.reached_end {
                             return Err(SyntaxError {
                                 error: SyntaxErrorKind::UnfinishedMultilineComment,
-                                source_name: self.source_name.clone(),
                                 position: initial_position,
                             });
                         }
@@ -104,13 +103,13 @@ impl Lexer {
             }
         }
 
-        self.previous_position = self.position;
+        self.previous_position = self.position.clone();
 
         if self.reached_end {
             return Ok(Token::EOF);
         }
 
-        let initial_position = self.position;
+        let initial_position = self.position.clone();
 
         if self.current_char == '"' {
             // string
@@ -122,7 +121,6 @@ impl Lexer {
                 if self.reached_end {
                     return Err(SyntaxError {
                         error: SyntaxErrorKind::UnfinishedString,
-                        source_name: self.source_name.clone(),
                         position: initial_position,
                     });
                 }
@@ -140,7 +138,6 @@ impl Lexer {
             match number {
                 Err(_why) => Err(SyntaxError {
                     error: SyntaxErrorKind::MalformedNumber(number_str),
-                    source_name: self.source_name.clone(),
                     position: initial_position,
                 }),
                 Ok(num) => Ok(Token::Number(num))
@@ -175,8 +172,7 @@ impl Lexer {
             // unknown character
             Err(SyntaxError {
                 error: SyntaxErrorKind::UnknownCharacter(self.current_char),
-                source_name: self.source_name.clone(),
-                position: self.position,
+                position: self.position.clone(),
             })
         }
     }
